@@ -1,47 +1,39 @@
-# 한글 깨짐 방지
-import koreanize_matplotlib
 import pandas as pd
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-
+import seaborn as sns
 import koreanize_matplotlib
-plt.rcParams["font.family"] = "NanumGothic"
-plt.rcParams["axes.unicode_minus"] = False
-# from mpl_toolkits.mplot3d import Axes3D
-# import seaborn as sns
-# from scipy import stats
-# import warnings
-# warnings.filterwarnings('ignore')
+import warnings
 
-# import shap
-# shap.initjs()  # JavaScript 시각화 초기화
-# from sklearn.datasets import fetch_openml
-# from sklearn.model_selection import train_test_split
-# from lightgbm import LGBMRegressor
-# from sklearn.linear_model import LinearRegression
-# from sklearn.metrics import root_mean_squared_error, classification_report, confusion_matrix
-# 랜덤 시드 고정
+# 기초 설정
+warnings.filterwarnings('ignore')
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
-# 차트에서 '-' 깨짐 현상 방지
-plt.rcParams['axes.unicode_minus'] = False
 
+# 시각화 한글 깨짐 방지
+plt.rcParams["font.family"] = "NanumGothic"
+plt.rcParams["axes.unicode_minus"] = False
 
-# CSV 파일 읽기
-df = pd.read_csv('C:/Users/anywa/OneDrive/바탕 화면/ai_project/data/train.csv')
-df.columns = [c.strip() for c in df.columns] 
-# 데이터의 상위 5개 행 출력하여 눈으로 확인
-print(df.head())
+# 데이터 로드 (경로 내 r 붙여서 에러 방지) - 파일 경로 바꿔주세요
+file_path = r'C:/Users/anywa/OneDrive/바탕 화면/ai_project/data/train.csv'
+df = pd.read_csv(file_path)
 
-# 1. 결측치, 이상치 확인
-print(df.shape)    
-print(df.info())
+# 컬럼 공백 제거 
+df.columns = [c.strip() for c in df.columns]
+
+# 1. 결측치, 이상치 확인  
+
 print(df.describe())
-print(df.isnull().sum())
+print(f"데이터 크기: {df.shape}")
+print(df.info())
 
-print("결측치 종류 확인")
-df.isnull().sum().sort_values(ascending=False)
+# 결측치 비율 확인 (상위 5개)
+missing_series = df.isnull().sum().sort_values(ascending=False)
+print("결측치 상위 컬럼:\n", missing_series.head(10))
+
+# 타겟 변수(임신 성공 여부) 불균형 확인
+print("타겟 클래스 비율:\n", df['임신 성공 여부'].value_counts(normalize=True))
+
 
 # 중복된 데이터 확인
 print(df.duplicated().sum())
@@ -64,47 +56,51 @@ df_columns = df[[
     '배아 해동 경과일', '임신 성공 여부'
 ]]
 
+
 # 3. 타겟 변수 (Target)
 target_col = '임신 성공 여부'
 
-# 1. 특정 컬럼의 실제 값 종류 확인 (예: 나이 컬럼)
-print(df['시술 당시 나이'].unique())
+# 1. 원본 보존을 위한 Deep Copy
+df_clean = df.copy()
 
-# 2. 임신 성공 여부(정답)의 비율 확인 (불균형 데이터인지 체크)
-print(df['임신 성공 여부'].value_counts(normalize=True))
-
-def classify_age_risk(age_str):
-    if age_str == '만18-34세':
-        return '정상_임신군'
-    elif age_str in ['만35-37세', '만38-39세']:
-        return '고위험_임신군'
-    elif age_str in ['만40-42세', '만43-44세', '만45-50세']:
-        return '초고위험_임신군'
-    else:
-        return '미분류' # '알 수 없음' 처리
-
-# 1. 매핑 딕셔너리 정의 (대표값과 위험군 동시 정의)
+# 2. 나이 데이터 수치화 및 그룹화 매핑 정의
+# 연령별 중간값(val)과 임상적 위험도(risk)를 멀티 트랙으로 관리
 age_info = {
-    '만18-34세': {'val': 26, 'risk': 'Normal'},
-    '만35-37세': {'val': 36, 'risk': 'High_Early'},
-    '만38-39세': {'val': 38.5, 'risk': 'High_Early'},
-    '만40-42세': {'val': 41, 'risk': 'High_Extreme'},
-    '만43-44세': {'val': 43.5, 'risk': 'High_Extreme'},
-    '만45-50세': {'val': 47.5, 'risk': 'High_Extreme'},
-    '알 수 없음': {'val': None, 'risk': 'Unknown'}
+    '만18-34세': {'val': 26, 'risk': '정상_임신군'},
+    '만35-37세': {'val': 36, 'risk': '고위험_임신군'},
+    '만38-39세': {'val': 38.5, 'risk': '고위험_임신군'},
+    '만40-42세': {'val': 41, 'risk': '초고위험_임신군'},
+    '만43-44세': {'val': 43.5, 'risk': '초고위험_임신군'},
+    '만45-50세': {'val': 47.5, 'risk': '초고위험_임신군'},
+    '알 수 없음': {'val': np.nan, 'risk': '미분류'}
 }
-df['임신_위험도_범주'] = df['시술 당시 나이'].apply(classify_age_risk)
 
-# 잘 바뀌었는지 확인
-print(df[['시술 당시 나이', '임신_위험도_범주']].value_counts())
+df_clean['나이_수치'] = df_clean['시술 당시 나이'].apply(lambda x: age_info[x]['val'])
+df_clean['임신_위험도_범주'] = df_clean['시술 당시 나이'].apply(lambda x: age_info[x]['risk'])
 
+# 3. 데이터 정제: 불필요한 특성 제거 (Feature Selection) 
+# (1) 결측치 과다 항목 (90% 이상)
+missing_drop = ['임신 시도 또는 마지막 임신 경과 연수', '난자 해동 경과일']
 
-# 2. 파생 변수 생성
-df['Age_Median'] = df['시술 당시 나이'].map(lambda x: age_info[x]['val'])
-df['Age_Risk_Group'] = df['시술 당시 나이'].map(lambda x: age_info[x]['risk'])
+# (2) 극심한 불균형 항목 (상수 수준 변수)
+# 분석 결과 1의 빈도가 0.1% 미만으로 학습에 악영향을 줄 수 있는 컬럼
+imbalanced_drop = [
+    '불임 원인 - 여성 요인', 
+    '불임 원인 - 자궁경부 문제', 
+    '불임 원인 - 정자 면역학적 요인', 
+    '불임 원인 - 정자 운동성', 
+    '불임 원인 - 정자 농도', 
+    '불임 원인 - 정자 형태'
+]
 
-# 3. 결과 확인 (나이별로 잘 쪼개졌는지 검증)
-result = df.groupby('시술 당시 나이')[['Age_Median', '임신 성공 여부']].mean()
-print(result)
+# (3) 통합 삭제 리스트 및 실행
+final_drop_list = missing_drop + imbalanced_drop
+df_clean = df_clean.drop(columns=final_drop_list)
 
-
+# 4. 최종 결과 검증
+print("-" * 30)
+print(f"1. 원본 대비 삭제된 컬럼 수: {len(final_drop_list)}")
+print(f"2. 전처리 후 최종 남은 컬럼 수: {len(df_clean.columns)}")
+print("-" * 30)
+print("3. 연령대별 평균 성공률 트렌드 (인사이트 확인):")
+print(df_clean.groupby('시술 당시 나이')['임신 성공 여부'].mean().sort_values(ascending=False))
