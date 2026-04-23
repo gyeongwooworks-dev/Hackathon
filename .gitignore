@@ -19,4 +19,25 @@ __pycache__/
 # 5. OS 및 에디터 설정
 .vscode/
 .DS_Store
-Thumbs.db
+Thumbs.db# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Local data files
+data/
+
+# Model
+models/
+*.pkl
+*.pt
+*.pth
+
+# virtual environment
+.venv/
+.env
+
+# Mac OS 설정 파일 (Mac 사용자 필수)
+.DS_Store
