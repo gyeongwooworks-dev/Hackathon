@@ -1,10 +1,16 @@
+
+# 한글 깨짐 방지
+# pip install koreanize-matplotlib -q
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import seaborn as sns
 import koreanize_matplotlib
 import warnings
 import math
+
 
 # 기초 설정
 warnings.filterwarnings('ignore')
@@ -101,8 +107,8 @@ missing_drop = ['임신 시도 또는 마지막 임신 경과 연수', '난자 �
 # (2) 극심한 불균형 항목 (상수 수준 변수), (ID 포함)
 # 분석 결과 1의 빈도가 0.1% 미만으로 학습에 악영향을 줄 수 있는 컬럼
 imbalanced_drop = [
-    'ID', '시술 시기 코드', # ⛔ 추가
-    '배란 유도 유형',  # ⛔ 추가 유효값 2건(0.0008%)으로 drop
+    'ID', '시술 시기 코드',
+    '배란 유도 유형',  # 유효값 2건(0.0008%)으로 drop
     '불임 원인 - 여성 요인',
     '불임 원인 - 자궁경부 문제',
     '불임 원인 - 정자 면역학적 요인',
@@ -118,7 +124,7 @@ df_clean = df_clean.drop(columns=final_drop_list)
 df_clean['특정 시술 유형'] = df_clean['특정 시술 유형'].fillna('Unknown')
 
 # ================================================================
-# 결측치 처리 및 파생변수 생성 ⛔ 추가
+# 결측치 처리 및 파생변수 생성 
 # ================================================================
 # (1) 유전 검사 컬럼 → 비수행(0) 처리
 # 고위험/초고위험군에서만 선택적으로 수행하는 시술이라 결측 = 미수행
@@ -365,8 +371,8 @@ axes[0].axhline(y=df_clean['임신_성공_여부'].mean(), color='red', linestyl
 axes[0].legend()
 for bar, val in zip(bars, age_success.values):
     axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005,
-                f'{val*100:.1f}%', ha='center', va='bottom', fontsize=9,
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='steelblue', linewidth=1))
+                    f'{val*100:.1f}%', ha='center', va='bottom', fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='steelblue', linewidth=1))
 
 # (2) 위험도 범주별 임신 성공률
 risk_success = df_clean[df_clean['임신_위험도_범주'] != '미분류'].groupby('임신_위험도_범주')['임신_성공_여부'].mean().sort_values(ascending=False)
@@ -501,8 +507,8 @@ axes[1].set_ylabel('케이스 수')
 axes[1].set_ylim(0, max(treatment_counts.values) * 1.25)
 for bar, val in zip(bars2, treatment_counts.values):
     axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 100,
-            f'{val:,}건', ha='center', va='bottom', fontsize=10,
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', linewidth=1))
+                f'{val:,}건', ha='center', va='bottom', fontsize=10,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', linewidth=1))
 
 plt.suptitle('시술 유형 vs 임신 성공률', fontsize=15)
 plt.tight_layout()
@@ -696,7 +702,7 @@ axes = axes.flatten()
 for i, col in enumerate(log_cols):
     bp = df_clean.boxplot(column=col, by='임신_성공_여부', ax=axes[i],
                     patch_artist=True,
-                    boxprops=dict(facecolor='#B3D4FF', color='steelblue'),
+                    boxprops=dict(facecolor='#B3D4FF', color='steelblue'), 
                     medianprops=dict(color='red', linewidth=2.5),
                     whiskerprops=dict(color='steelblue'),
                     capprops=dict(color='steelblue'),
@@ -1071,6 +1077,168 @@ df_clean['정상군_첫시술'] = (
     (df_clean['총_시술_횟수_clip'] == 0)
 ).astype(int)
 
+# ================================================================
+# 남성/여성 불임 요인 통합 파생변수 생성
+# ================================================================
+
+# 남성 요인 관련 컬럼 중 하나라도 1이면 남성 요인 있음
+df_clean['남성_요인_존재'] = (
+    (df_clean['남성_주_불임_원인'] == 1) |
+    (df_clean['남성_부_불임_원인'] == 1) |
+    (df_clean['불임_원인_-_남성_요인'] == 1)
+).astype(int)
+
+# 여성 요인 관련 컬럼 중 하나라도 1이면 여성 요인 있음
+df_clean['여성_요인_존재'] = (
+    (df_clean['여성_주_불임_원인'] == 1) |
+    (df_clean['여성_부_불임_원인'] == 1) |
+    (df_clean['불임_원인_-_난관_질환'] == 1) |
+    (df_clean['불임_원인_-_배란_장애'] == 1) |
+    (df_clean['불임_원인_-_자궁내막증'] == 1)
+).astype(int)
+
+# 비교
+print(f"남성 요인 있음: {df_clean[df_clean['남성_요인_존재']==1]['임신_성공_여부'].mean()*100:.1f}%")
+print(f"남성 요인 없음: {df_clean[df_clean['남성_요인_존재']==0]['임신_성공_여부'].mean()*100:.1f}%")
+print()
+print(f"여성 요인 있음: {df_clean[df_clean['여성_요인_존재']==1]['임신_성공_여부'].mean()*100:.1f}%")
+print(f"여성 요인 없음: {df_clean[df_clean['여성_요인_존재']==0]['임신_성공_여부'].mean()*100:.1f}%")
+print()
+print(f"전체 평균: {df_clean['임신_성공_여부'].mean()*100:.1f}%")
+
+# 분포 확인
+print(f"\n남성_요인_존재: {df_clean['남성_요인_존재'].value_counts().to_dict()}")
+print(f"여성_요인_존재: {df_clean['여성_요인_존재'].value_counts().to_dict()}")
+
+fig, ax = plt.subplots(figsize=(9, 5))
+
+labels = ['남성 요인\n있음\n(n=101,051)', '남성 요인\n없음\n(n=155,300)',
+        '여성 요인\n있음\n(n=86,375)', '여성 요인\n없음\n(n=169,976)']
+values = [27.6, 24.7, 26.3, 25.6]
+colors = ['#1D9E75', '#B4B2A9', '#7F77DD', '#D3D1C7']
+
+x = np.arange(len(labels))
+bars = ax.bar(x, values, color=colors, width=0.55, zorder=3)
+
+# 전체 평균 기준선
+avg = 25.8
+ax.axhline(avg, color='#E24B4A', linewidth=1.5, linestyle='--', zorder=4, label=f'전체 평균 {avg}%')
+
+# 수치 박스 (잘림 방지)
+for bar, val in zip(bars, values):
+    ax.annotate(
+        f'{val}%',
+        xy=(bar.get_x() + bar.get_width() / 2, val),
+        xytext=(0, 6),
+        textcoords='offset points',
+        ha='center', va='bottom',
+        fontsize=12, fontweight='bold', color='#2C2C2A',
+        bbox=dict(boxstyle='round,pad=0.35', fc='white', ec='#D3D1C7', lw=1)
+    )
+
+# 차이 화살표 (남성)
+ax.annotate('', xy=(0, 27.6), xytext=(1, 24.7),
+            arrowprops=dict(arrowstyle='<->', color='#1D9E75', lw=1.5))
+ax.text(0.5, 26.4, '+2.9%p', ha='center', va='bottom', fontsize=10,
+        color='#1D9E75', fontweight='bold')
+
+# 차이 화살표 (여성)
+ax.annotate('', xy=(2, 26.3), xytext=(3, 25.6),
+            arrowprops=dict(arrowstyle='<->', color='#7F77DD', lw=1.5))
+ax.text(2.5, 26.1, '+0.7%p', ha='center', va='bottom', fontsize=10,
+        color='#7F77DD', fontweight='bold')
+
+# 축 정리
+ax.set_xticks(x)
+ax.set_xticklabels(labels, fontsize=11)
+ax.set_ylim(22, 31)
+ax.set_ylabel('임신 성공률 (%)', fontsize=11)
+ax.yaxis.grid(True, linestyle=':', color='#D3D1C7', zorder=0)
+ax.set_axisbelow(True)
+ax.spines[['top', 'right']].set_visible(False)
+
+# 범례
+patches = [
+    mpatches.Patch(color='#1D9E75', label='남성 요인 있음'),
+    mpatches.Patch(color='#B4B2A9', label='남성 요인 없음'),
+    mpatches.Patch(color='#7F77DD', label='여성 요인 있음'),
+    mpatches.Patch(color='#D3D1C7', label='여성 요인 없음'),
+    plt.Line2D([0], [0], color='#E24B4A', lw=1.5, linestyle='--', label=f'전체 평균 {avg}%'),
+]
+ax.legend(handles=patches, loc='lower right', fontsize=10, framealpha=0.9)
+
+plt.tight_layout()
+plt.savefig('factor_success_rate.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+# 이식된_배아_수별 성공률
+plt.rcParams['font.family'] = 'NanumGothic'
+plt.rcParams['axes.unicode_minus'] = False
+
+# 데이터 집계
+emb_data = df_clean.groupby('이식된_배아_수')['임신_성공_여부'].agg(['mean', 'count']).reset_index()
+emb_data.columns = ['이식수', '성공률', '샘플수']
+emb_data = emb_data[emb_data['이식수'] > 0]  # 0개 이식은 제외
+
+# 성공률에 따라 색상 그라데이션
+colors = ['#B4B2A9' if v < 0.258 else '#1D9E75' for v in emb_data['성공률']]
+
+fig, ax = plt.subplots(figsize=(9, 5))
+
+bars = ax.bar(emb_data['이식수'].astype(int), emb_data['성공률'] * 100,
+            color=colors, width=0.55, zorder=3)
+
+# 전체 평균선
+ax.axhline(25.8, color='#E24B4A', lw=1.5, ls='--', zorder=4, label='전체 평균 25.8%')
+
+# 수치 박스 (성공률 + 샘플수)
+for bar, (_, row) in zip(bars, emb_data.iterrows()):
+    ax.annotate(
+        f"{row['성공률']*100:.1f}%\n(n={int(row['샘플수']):,})",
+        xy=(bar.get_x() + bar.get_width() / 2, row['성공률'] * 100),
+        xytext=(0, 7), textcoords='offset points',
+        ha='center', va='bottom', fontsize=10, fontweight='bold', color='#2C2C2A',
+        bbox=dict(boxstyle='round,pad=0.4', fc='white', ec='#aaa', lw=1)
+    )
+
+# 꺾은선
+ax.plot(emb_data['이식수'].astype(int), emb_data['성공률'] * 100,
+        'o--', color='#534AB7', lw=1.8, ms=6, zorder=5, label='추세선')
+
+ax.set_xlabel('이식된 배아 수 (개)', fontsize=12)
+ax.set_ylabel('임신 성공률 (%)', fontsize=12)
+ax.set_xticks(emb_data['이식수'].astype(int))
+ax.set_ylim(0, 45)
+ax.yaxis.grid(True, linestyle=':', color='#D3D1C7', zorder=0)
+ax.set_axisbelow(True)
+ax.spines[['top', 'right']].set_visible(False)
+
+legend_patches = [
+    mpatches.Patch(color='#1D9E75', label='평균 이상'),
+    mpatches.Patch(color='#B4B2A9', label='평균 이하'),
+    plt.Line2D([0], [0], color='#E24B4A', lw=1.5, ls='--', label='전체 평균 25.8%'),
+    plt.Line2D([0], [0], color='#534AB7', lw=1.8, ls='--',
+            marker='o', ms=5, label='추세선'),
+]
+ax.legend(handles=legend_patches, fontsize=10, framealpha=0.9, loc='upper right')
+
+plt.suptitle('이식된 배아 수별 임신 성공률', fontsize=14)
+plt.tight_layout()
+plt.savefig('embryo_success.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+# 1. 단일배아 여부 (1개 이식 = 최적 조건)
+df_clean['단일배아_이식'] = (df_clean['이식된_배아_수'] == 1).astype(int)
+
+# 2. 과다이식 여부 (3개 이상 = 위험 신호)
+df_clean['과다배아_이식'] = (df_clean['이식된_배아_수'] >= 3).astype(int)
+
+# 3. 나이 × 배아수 조합 (핵심 교호작용)
+# 고령인데 배아 3개 이상 이식 = 이중 위험
+df_clean['고령_과다이식'] = (
+    (df_clean['나이_수치'] >= 38) & (df_clean['이식된_배아_수'] >= 3)
+).astype(int)
+
 cat_cols = df_clean.select_dtypes(include='object').columns.tolist()
 print(f"범주형 컬럼 수: {len(cat_cols)}")
 for col in cat_cols:
@@ -1096,10 +1264,8 @@ egg_donor_order = {'알 수 없음': 0, '만20세 이하': 1, '만21-25세': 2, 
 df_clean['난자_기증자_나이'] = df_clean['난자_기증자_나이'].map(egg_donor_order)
 
 # (5) 순서형 인코딩 — 정자_기증자_나이
-sperm_donor_order = {
-    '알 수 없음': 0, '만20세 이하': 1, '만21-25세': 2, '만26-30세': 3,
-    '만31-35세': 4, '만36-40세': 5, '만41-45세': 6
-    }
+sperm_donor_order = {'알 수 없음': 0, '만20세 이하': 1, '만21-25세': 2, '만26-30세': 3,
+                    '만31-35세': 4, '만36-40세': 5, '만41-45세': 6}
 df_clean['정자_기증자_나이'] = df_clean['정자_기증자_나이'].map(sperm_donor_order)
 
 # (6) 원핫 인코딩 — 시술_분류_그룹, 배아_생성_주요_이유
@@ -1113,6 +1279,95 @@ df_clean = df_clean.rename(columns={'시술_분류_그룹_Unknown': '시술_분�
 print("남은 범주형 컬럼:")
 print(df_clean.select_dtypes(include='object').columns.tolist())
 print(f"\n전체 컬럼 수: {len(df_clean.columns)}")
+
+plt.rcParams['font.family'] = 'NanumGothic'
+plt.rcParams['axes.unicode_minus'] = False
+
+cont_cols = [
+    '나이_수치',
+    '이식된_배아_수',
+    '총_시술_횟수_clip',
+    '총_임신_횟수_clip',
+    '수집된_신선_난자_수_log',
+    '임신_성공_여부',
+]
+
+g = sns.pairplot(
+    df_clean[cont_cols].sample(3000, random_state=42),
+    hue='임신_성공_여부',
+    palette={0: '#B4B2A9', 1: '#1D9E75'},
+    kind='kde',          # 산점도 → KDE
+    diag_kind='kde',     # 대각선도 KDE
+    plot_kws={'alpha': 0.5, 'fill': True},
+    diag_kws={'fill': True, 'alpha': 0.5},
+)
+
+# 범례 라벨 변경
+g.legend.set_title('임신 성공 여부')
+for t, label in zip(g.legend.texts, ['실패 (0)', '성공 (1)']):
+    t.set_text(label)
+
+plt.suptitle('주요 연속형 변수 KDE 페어플롯', fontsize=14, y=1.02)
+plt.savefig('pairplot_kde.png', dpi=120, bbox_inches='tight')
+plt.show()
+
+cont_cols = [
+    '나이_수치',
+    '이식된_배아_수',
+    '총_시술_횟수_clip',
+    '총_임신_횟수_clip',
+    '수집된_신선_난자_수_log'
+]
+
+corr = df_clean[cont_cols + ['임신_성공_여부']].corr()
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(corr, annot=True, fmt='.2f', cmap='RdYlGn', center=0,
+            square=True, linewidths=0.5,
+            cbar_kws={'shrink': 0.8})
+plt.title('연속형 변수 상관관계', fontsize=13)
+plt.tight_layout()
+plt.savefig('corr_heatmap.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+# ================================================================
+# 파생변수 최종 추가
+# ================================================================
+
+# 1. 기존 누락 확인용 (Blastocyst_Transfer)
+print('Blastocyst 있음:', any('Blastocyst' in c for c in df_clean.columns))
+
+# 2. 단일배아/과다배아/고령과다이식 (대화 중 생성 — 혹시 없으면 여기서 생성)
+df_clean['단일배아_이식'] = (df_clean['이식된_배아_수'] == 1).astype(int)
+df_clean['과다배아_이식'] = (df_clean['이식된_배아_수'] >= 3).astype(int)
+df_clean['고령_과다이식'] = (
+    (df_clean['나이_수치'] >= 38) & (df_clean['이식된_배아_수'] >= 3)
+).astype(int)
+
+# 3. 신규 파생변수
+df_clean['유전검사_시행'] = (
+    (df_clean['PGD_시술_여부'] == 1) | (df_clean['PGS_시술_여부'] == 1)
+).astype(int)
+
+df_clean['복합_불임_원인'] = (
+    (df_clean['남성_요인_존재'] == 1) & (df_clean['여성_요인_존재'] == 1)
+).astype(int)
+
+df_clean['고령_반복시술'] = (
+    (df_clean['나이_수치'] >= 38) & (df_clean['총_시술_횟수_clip'] >= 3)
+).astype(int)
+
+df_clean['동결_기증_복합'] = (
+    (df_clean['동결_배아_사용_여부'] == 1) & (df_clean['기증_배아_사용_여부'] == 1)
+).astype(int)
+
+df_clean['배아출처_불명'] = (
+    (df_clean['신선_배아_사용_여부'] == 0) & (df_clean['동결_배아_사용_여부'] == 0)
+).astype(int)
+
+df_clean['배아_이식_효율'] = (
+    df_clean['이식된_배아_수'] / (df_clean['총_생성_배아_수_log'] + 1)
+).round(4)
 
 # 파생변수로 대체된 컬럼이 아직 남아있는지 확인
 # 제거했어야 할 원본 컬럼들
@@ -1166,7 +1421,7 @@ print(f"전체 행 수: {len(df_clean)}")
 
 df_clean.columns
 
-# # 전처리 완료된 데이터 저장
-# df_clean.to_csv('df_clean_preprocessed.csv', index=False)
-# print(f"저장 완료")
-# print(f"shape: {df_clean.shape}")
+# 전처리 완료된 데이터 저장
+df_clean.to_csv('df_clean_preprocessed_v2.csv', index=False)
+print(f"저장 완료")
+print(f"shape: {df_clean.shape}")
