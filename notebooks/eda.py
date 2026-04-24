@@ -148,12 +148,32 @@ df_clean = df_clean.drop(columns=['배아 해동 경과일'])
 date_cols = {
     '난자 채취 경과일': '난자채취_수행',
     '난자 혼합 경과일': '난자혼합_수행',
-    '배아 이식 경과일': '배아이식_수행',
 }
 
 for col, flag in date_cols.items():
     df_clean[flag] = df_clean[col].notna().astype(int)
 df_clean = df_clean.drop(columns=list(date_cols.keys()))
+
+# ----------------------------------------------------------
+#   배아 이식 경과일 구간화 (배아이식_수행 플래그 대체)
+#   5~6일(배반포 단계) 성공률 40.1% vs 3~4일 26.5% → +13.6%p 차이
+# ----------------------------------------------------------
+def make_elapsed_bin(series):
+    """경과일 → 구간 숫자 (0일/1-2일/3-4일/5-6일/7일+)"""
+    return pd.cut(
+        pd.to_numeric(series, errors='coerce').fillna(-1),
+        bins=[-2, 0, 2, 4, 6, 999],
+        labels=[0, 1, 2, 3, 4]
+    ).astype(float)
+ 
+df_clean['이식경과일_구간'] = make_elapsed_bin(df_clean['배아 이식 경과일'])
+df_clean['배반포_이식_추정'] = (df_clean['이식경과일_구간'].fillna(0) >= 3).astype(int)
+df_clean = df_clean.drop(columns=['배아 이식 경과일'])
+ 
+print("[추가 완료] 배아 이식 경과일 구간 피처")
+print(f"  배반포_이식_추정 분포: {df_clean['배반포_이식_추정'].value_counts().to_dict()}")
+print(f"  배반포 이식 성공률: {df_clean[df_clean['배반포_이식_추정']==1]['임신 성공 여부'].mean():.3f}")
+print(f"  일반 이식 성공률:   {df_clean[df_clean['배반포_이식_추정']==0]['임신 성공 여부'].mean():.3f}")
 
 # (5) [그룹 C] 배아/난자 수치 20개 (2.4% 결측)
 # IUI, DI 등 체외수정 미수행 시 수집 자체가 안 되는 구조적 결측
