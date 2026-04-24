@@ -1,4 +1,3 @@
-
 # 한글 깨짐 방지
 # pip install koreanize-matplotlib -q
 
@@ -22,11 +21,15 @@ plt.rcParams["font.family"] = "NanumGothic"
 plt.rcParams["axes.unicode_minus"] = False
 
 # 데이터 로드 (경로 내 r 붙여서 에러 방지) - 파일 경로 바꿔주세요
-file_path = r'/content/train.csv'
-df = pd.read_csv(file_path)
+train_path = r'/content/train.csv'
+test_path  = r'/content/test.csv'
+
+df      = pd.read_csv(train_path)   # Train 원본
+df_test = pd.read_csv(test_path)    # Test 원본
 
 # 컬럼 공백 제거
-df.columns = [c.strip() for c in df.columns]
+df.columns      = [c.strip() for c in df.columns]
+df_test.columns = [c.strip() for c in df_test.columns]
 
 # 1. 결측치, 이상치 확인
 
@@ -73,7 +76,13 @@ df_columns = df[[
 target_col = '임신 성공 여부'
 
 #  원본 보존을 위한 Deep Copy
-df_clean = df.copy()
+df_clean      = df.copy()
+df_clean_test = df_test.copy()   # Test 전처리용 복사본
+
+# ================================================================
+# [Data Leakage 방지] Train 기준 fit 값 저장소
+# ================================================================
+iqr_clip_bounds = {}  # IQR 클리핑 상한값 (Train 기준 계산 후 Test에 재사용)
 
 # ID별 출현 빈도 계산
 id_counts = df['ID'].value_counts()
@@ -208,9 +217,11 @@ df_clean['나이_수치'] = df_clean['시술 당시 나이'].apply(
 )
 df_clean['임신_위험도_범주'] = df_clean['시술 당시 나이'].apply(lambda x: age_info[x]['risk'])
 
-# 나이_수치 결측치 329건 (0.13%) → 중앙값 대체
-# 건수가 너무 적어 플래그 추가 시 노이즈 우려
-df_clean['나이_수치'] = df_clean['나이_수치'].fillna(df_clean['나이_수치'].median())
+# 나이_수치 결측치 329건 (0.13%) → Train 중앙값으로 대체
+# [Fix #2] 전체 데이터 중앙값 대신 Train 기준 중앙값만 사용하여 Test 영향 차단
+AGE_MEDIAN_FILLNA = df_clean['나이_수치'].median()   # Train에서만 계산
+print(f"[나이 결측 대체값] Train 중앙값: {AGE_MEDIAN_FILLNA}")
+df_clean['나이_수치'] = df_clean['나이_수치'].fillna(AGE_MEDIAN_FILLNA)
 
 # (2) 시술 유형 5개 그룹으로 압축
 def classify_treatment_logic(x):
@@ -350,11 +361,13 @@ for col in binary_cols:
 clip_cols = [
     '저장된_배아_수', '미세주입_후_저장된_배아_수', '해동된_배아_수'
 ]
+# [Fix #1] Train 데이터에서만 IQR 계산 → 계산값을 iqr_clip_bounds에 저장 → Test에 재사용
 for col in clip_cols:
-    Q1 = df_clean[col].quantile(0.25)
-    Q3 = df_clean[col].quantile(0.75)
+    Q1 = df_clean[col].quantile(0.25)   # Train 기준
+    Q3 = df_clean[col].quantile(0.75)   # Train 기준
     IQR = Q3 - Q1
     upper = Q3 + 1.5 * IQR
+    iqr_clip_bounds[col] = upper         # Test에서 재사용할 상한값 저장
     df_clean[col + '_clip'] = df_clean[col].clip(upper=upper)
 
 # ================================================================
@@ -1289,8 +1302,20 @@ sperm_donor_order = {'알 수 없음': 0, '만20세 이하': 1, '만21-25세': 2
 df_clean['정자_기증자_나이'] = df_clean['정자_기증자_나이'].map(sperm_donor_order)
 
 # (6) 원핫 인코딩 — 시술_분류_그룹, 배아_생성_주요_이유
+# [Fix #3] pd.get_dummies(전체) → sklearn OneHotEncoder로 교체
+#           Train에서만 fit → Test에는 transform만 적용 (handle_unknown='ignore'로 미지 카테고리 안전 처리)
+from sklearn.preprocessing import OneHotEncoder
+
 ohe_cols = ['시술_분류_그룹', '배아_생성_주요_이유']
-df_clean = pd.get_dummies(df_clean, columns=ohe_cols, drop_first=True)
+
+ohe = OneHotEncoder(sparse_output=False, handle_unknown='ignore', drop='first')
+ohe.fit(df_clean[ohe_cols])   # Train에서만 fit
+
+# Train 변환
+train_encoded = ohe.transform(df_clean[ohe_cols])
+ohe_feature_names = ohe.get_feature_names_out(ohe_cols)
+df_encoded = pd.DataFrame(train_encoded, columns=ohe_feature_names, index=df_clean.index)
+df_clean = pd.concat([df_clean.drop(columns=ohe_cols), df_encoded], axis=1)
 
 # Unknown = ICI, Generic DI, FER, GIFT 등 기타 시술 포함 → 컬럼명 변경
 df_clean = df_clean.rename(columns={'시술_분류_그룹_Unknown': '시술_분류_그룹_기타'})
@@ -1445,3 +1470,44 @@ df_clean.columns
 df_clean.to_csv('df_clean_preprocessed_v2.csv', index=False)
 print(f"저장 완료")
 print(f"shape: {df_clean.shape}")
+
+# ================================================================
+# [Fix 종합] Test 데이터에 Train 기준값 그대로 적용 (transform only)
+# ================================================================
+print("\n=== Test 데이터 전처리 (Train 기준값 재사용) ===")
+
+# --- 기본 전처리 (구조적 결측·파생변수 동일 적용) ---
+df_clean_test.columns = df_clean_test.columns.str.strip()
+
+# Fix #2: 나이 결측 → Train 중앙값(AGE_MEDIAN_FILLNA) 그대로 사용
+df_clean_test['나이_수치'] = df_clean_test['시술_당시_나이'].apply(
+    lambda x: age_info.get(x, {'val': np.nan})['val']
+)
+df_clean_test['나이_수치'] = df_clean_test['나이_수치'].fillna(AGE_MEDIAN_FILLNA)
+print(f"[Test 나이 결측 대체] 사용값: {AGE_MEDIAN_FILLNA} (Train 중앙값 고정)")
+
+# Fix #1: IQR 클리핑 → Train에서 계산한 iqr_clip_bounds 재사용
+for col, upper in iqr_clip_bounds.items():
+    if col in df_clean_test.columns:
+        df_clean_test[col + '_clip'] = df_clean_test[col].clip(upper=upper)
+        print(f"[Test IQR 클리핑] {col} 상한값: {upper:.1f} (Train 기준 고정)")
+
+# Fix #3: OHE → 이미 fit된 ohe 객체로 transform만 수행
+if '시술_분류_그룹' in df_clean_test.columns and '배아_생성_주요_이유' in df_clean_test.columns:
+    test_encoded = ohe.transform(df_clean_test[ohe_cols])   # fit 없이 transform만
+    df_test_enc  = pd.DataFrame(test_encoded, columns=ohe_feature_names, index=df_clean_test.index)
+    df_clean_test = pd.concat([df_clean_test.drop(columns=ohe_cols), df_test_enc], axis=1)
+    df_clean_test = df_clean_test.rename(columns={'시술_분류_그룹_Unknown': '시술_분류_그룹_기타'})
+    print(f"[Test OHE] Train fit 객체로 transform 완료 → 컬럼 수: {len(df_test_enc.columns)}")
+
+# 컬럼 일치 검증
+train_cols = set(df_clean.columns) - {'임신_성공_여부'}
+test_cols  = set(df_clean_test.columns)
+missing_in_test  = train_cols - test_cols
+extra_in_test    = test_cols  - train_cols
+print(f"\n[컬럼 일치 검증]")
+print(f"  Test에 없는 컬럼: {missing_in_test  if missing_in_test  else '없음 ✅'}")
+print(f"  Test에만 있는 컬럼: {extra_in_test  if extra_in_test    else '없음 ✅'}")
+
+df_clean_test.to_csv('df_clean_test_preprocessed_v2.csv', index=False)
+print(f"\nTest 저장 완료 | shape: {df_clean_test.shape}")
