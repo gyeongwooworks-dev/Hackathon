@@ -174,11 +174,11 @@ def make_elapsed_bin(series):
         bins=[-2, 0, 2, 4, 6, 999],
         labels=[0, 1, 2, 3, 4]
     ).astype(float)
- 
+
 df_clean['이식경과일_구간'] = make_elapsed_bin(df_clean['배아 이식 경과일'])
 df_clean['배반포_이식_추정'] = (df_clean['이식경과일_구간'].fillna(0) >= 3).astype(int)
 df_clean = df_clean.drop(columns=['배아 이식 경과일'])
- 
+
 print("[추가 완료] 배아 이식 경과일 구간 피처")
 print(f"  배반포_이식_추정 분포: {df_clean['배반포_이식_추정'].value_counts().to_dict()}")
 print(f"  배반포 이식 성공률: {df_clean[df_clean['배반포_이식_추정']==1]['임신 성공 여부'].mean():.3f}")
