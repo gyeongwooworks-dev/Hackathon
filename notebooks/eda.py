@@ -1308,6 +1308,10 @@ from sklearn.preprocessing import OneHotEncoder
 
 ohe_cols = ['시술_분류_그룹', '배아_생성_주요_이유']
 
+# ohe.fit 전 타입 통일 (혼합 타입으로 인한 오류 방지)
+for col in ohe_cols:
+    df_clean[col] = df_clean[col].astype(str)
+
 ohe = OneHotEncoder(sparse_output=False, handle_unknown='ignore', drop='first')
 ohe.fit(df_clean[ohe_cols])   # Train에서만 fit
 
@@ -1318,7 +1322,8 @@ df_encoded = pd.DataFrame(train_encoded, columns=ohe_feature_names, index=df_cle
 df_clean = pd.concat([df_clean.drop(columns=ohe_cols), df_encoded], axis=1)
 
 # Unknown = ICI, Generic DI, FER, GIFT 등 기타 시술 포함 → 컬럼명 변경
-df_clean = df_clean.rename(columns={'시술_분류_그룹_Unknown': '시술_분류_그룹_기타'})
+# 해당 컬럼이 없을 경우 에러 방지를 위해 errors='ignore' 추가
+df_clean = df_clean.rename(columns={'시술_분류_그룹_Unknown': '시술_분류_그룹_기타'}, errors='ignore')
 
 # 검증
 print("남은 범주형 컬럼:")
